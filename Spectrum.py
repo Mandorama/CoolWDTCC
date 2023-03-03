@@ -18,44 +18,60 @@ from specutils.fitting import fit_generic_continuum
 from astropy.modeling import models
 
 
-def ModelData(Index, Gridfilepath="GridCLEAN.csv"):
-    Grid = getModelsGrid(Gridfilepath)
-    Data = pd.read_csv(
-        f"./Espectros/{Grid.Arquivo[Index]}", header=None, sep="\s+")
+class Model:
+    def __init__(self, Index, Gridfilepath="GridCLEAN.csv"):
+        self.Index = Index
+        self.Grid = getModelsGrid(Gridfilepath)
 
-    return Data
+    @property
+    def ModelData(self):
+        return getModelData(self.Grid, self.Index)
+
+    @property
+    def EffectiveTemperature(self):
+        return self.Grid.Teff[self.Index]
+
+    @property
+    def LogarithmicGravity(self):
+        return self.Grid.logg[self.Index]
+
 
 def getModelsGrid(Gridfilepath="GridCLEAN.csv"):
     Grid = pd.read_csv(Gridfilepath)
-    
+
     return Grid
+
+
+def getModelData(Grid, Index):
+    ModelData = pd.read_csv(
+        f"./Espectros/{Grid.Arquivo[Index]}", header=None, sep="\s+")
+
+    return ModelData
 
 
 class ModelSpectrum:
 
-    def __init__(self, ModelData):
-        self.ModelData = ModelData
-        self.FluxData = np.array(
+    def __init__(self, ModelProperties):
+        self.ModelData = ModelProperties.ModelData
+        self.Teff = ModelProperties.EffectiveTemperature
+        self.logg = ModelProperties.LogarithmicGravity
+
+    @property
+    def FluxData(self):
+        return np.array(
             self.ModelData[1].copy())*u.Unit("erg / (Angstrom cm2 s)")
-        self.SpectralAxis = np.array(self.ModelData[0].copy())*u.Angstrom
-        self.Spectrum = Spectrum1D(flux=self.FluxData,
-                                   spectral_axis=self.SpectralAxis)
 
-    def getLineParameters(self, Line):
-        LineGaussianFitting = SpectrumLineFitting(self, Line)
-        LineAmplitude = LineGaussianFitting.amplitude.value
-        LineStdDev = LineGaussianFitting.stddev.value
+    @property
+    def SpectralAxis(self):
+        return np.array(self.ModelData[0].copy())*u.Angstrom
 
-        Parameters = np.array([LineAmplitude, LineStdDev])
+    @property
+    def Spectrum(self):
+        return Spectrum1D(flux=self.FluxData,
+                          spectral_axis=self.SpectralAxis)
 
-        return Parameters
-
-    def getGaussianLineFit(self, Line):
-        GaussianFit = SpectrumLineFitting(self, Line)
-
-        return GaussianFit
-
-    def getGaussianFits(self):
+    @property
+    def GaussianFits(self):
         GaussianFits = {'Alpha': SpectrumLineFitting(self, 'Alpha'),
                         'Beta': SpectrumLineFitting(self, 'Beta'),
                         'Gamma': SpectrumLineFitting(self, 'Gamma'),
@@ -65,7 +81,16 @@ class ModelSpectrum:
 
         return GaussianFits
 
-    def getNormalizedLineSpectrum(self, Line):
+    def LineParameters(self, Line):
+        LineGaussianFitting = SpectrumLineFitting(self, Line)
+        LineAmplitude = LineGaussianFitting.amplitude.value
+        LineStdDev = LineGaussianFitting.stddev.value
+
+        Parameters = np.array([LineAmplitude, LineStdDev])
+
+        return Parameters
+
+    def NormalizedLineSpectrum(self, Line):
         CutSpectrum = LineSpectrum(self, Line)
         ContinuumSpectrum = FitContinuumSpectrum(CutSpectrum, Line)
 
@@ -230,5 +255,12 @@ def GaussianParameterFirstGuess(AmplitudeGuess):
 
     return InitialGuess
 
+
+class ObservedSpectrum():
+    pass
+
+
 if __name__ == "__main__":
-    print(ModelSpectrum(ModelData(0)))
+    TestModel = ModelSpectrum(Model(0))
+
+    print(TestModel.GaussianFits['Beta'])
