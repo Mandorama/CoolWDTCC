@@ -25,19 +25,7 @@ for i in range(Catalog["PMJ"].size):
     url[i] = "http://dr16.sdss.org/optical/spectrum/view/data/format=csv?plateid=" + \
         Plate[i]+"&mjd="+MJD[i]+"&fiberid="+Fiber[i]+"&reduction2d=v5_7_0"
 
-RetryList = []
-
 for i in range(Catalog["PMJ"].size):
     arqv = Catalog["PMJ"][i]
     tabela = pd.read_csv(url[i])
-    try:
-        tabela.to_csv("./SDSS/"+arqv+".csv", index=False)
-    except:
-        RetryList.append(arqv)
-for i in range(len(RetryList)):
-    arqv = RetryList[i]
-    tabela = pd.read_csv(url[i])
-    try:
-        tabela.to_csv("./SDSS/"+arqv+".csv", index=False)
-    except:
-        RetryList.append(arqv)
+    tabela.to_csv("./SDSS/"+arqv+".csv", index=False)
