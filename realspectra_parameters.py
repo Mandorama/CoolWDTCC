@@ -9,5 +9,5 @@ Created on Fri Mar  3 16:16:10 2023
 import time
 import numpy as np
 import pandas as pd
-import Spectrum as spec
+import spectral_manipulation as spec
 
