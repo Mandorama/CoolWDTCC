@@ -8,14 +8,14 @@ Created on Thu Mar  2 11:48:58 2023
 
 import math
 import warnings
-from astropy import units as u
 import numpy as np
 import pandas as pd
+from astropy import units as u
+from astropy.modeling import models
 from specutils.spectra import Spectrum1D
 from specutils.spectra import SpectralRegion
 from specutils.fitting import fit_lines
 from specutils.fitting import fit_generic_continuum
-from astropy.modeling import models
 
 
 class GenericModel:
@@ -177,19 +177,14 @@ class ModelSpectrum:
 
 
 BalmerSeriesAngstrom = np.array([6562.79, 4861.35, 4340.472, 4101.734,
-                                 3970.075, 3889.064, 3835.064, 3797.909, 3770.633])
+                                 3970.075, 3889.064])
 
 
 def fit_spectrum_line(model, line):
     """ Returns the gaussian paramters for the fit of a given line"""
     spectrum = line_spectrum(model, line)
-    line_continuum = fit_continuum_spectrum(
+    gaussian_parameters = gaussian_fitting(
         spectrum, line)
-
-    line_index = get_line_index(line)
-
-    gaussian_parameters = GaussianFitting(
-        spectrum, line_continuum, line_index)
 
     return gaussian_parameters
 
@@ -243,8 +238,7 @@ def fit_continuum_spectrum(spectrum, line):
     """ Returns the continuum spectrum around a given line. """
     noise_region = line_noise_region(line)
 
-    continuum_fit = CreateContinuumFitFunction(
-        spectrum, noise_region)
+    continuum_fit = create_continuum_fitfunction(spectrum, noise_region)
     continuum_spectrum = continuum_fit(spectrum.spectral_axis)
 
     return continuum_spectrum
@@ -279,73 +273,104 @@ def set_subregion(balmer_series_index, scaling_tolerence_factor):
     return sub_region
 
 
-def CreateContinuumFitFunction(BaseSpectrum, RegionsToBeExcluded):
+def create_continuum_fitfunction(original_spectrum, exclude_regions):
+    """ Returns the continuum fitted from a given spectrum. """
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        ContinuumFitFunction = fit_generic_continuum(
-            BaseSpectrum, exclude_regions=RegionsToBeExcluded)
+        continuum_fitfuction = fit_generic_continuum(original_spectrum,
+                                                     exclude_regions=exclude_regions)
 
-        return ContinuumFitFunction
-
-
-def GaussianFitting(BaseSpectrum, ContinuumFittedSpectrum, BalmerSeriesIndex):
-    NormalizedSpectrum = NormalizeSpectrum(
-        BaseSpectrum, ContinuumFittedSpectrum)
-    LinePeak = FindLinePeak(NormalizedSpectrum, BalmerSeriesIndex)
-    ShiftedSpectrum = PeakCentralizedSpectrum(NormalizedSpectrum, LinePeak)
-
-    GaussianFitResults = GaussianFit(ShiftedSpectrum, LinePeak)
-
-    return GaussianFitResults
+        return continuum_fitfuction
 
 
-def NormalizeSpectrum(BaseSpectrum, ContinuumSpectrum):
-    Normalization = BaseSpectrum/ContinuumSpectrum
+def gaussian_fitting(spectrum, line):
+    """ Returns the results of a gaussian fit of the spectrum around a line. """
+    line_continuum = fit_continuum_spectrum(
+        spectrum, line)
+    normalized_spectrum = normalize_spectrum(spectrum, line_continuum)
 
-    return Normalization
+    line_peak = find_linepeak(normalized_spectrum, line)
+    shifted_spectrum = peakshift_spectrum(normalized_spectrum, line_peak)
+
+    amplitude_firstguess = shifted_spectrum.flux[line_peak]
+    initial_parameters = gaussian_first_guess(amplitude_firstguess)
+
+    gaussianfit_results = fit_lines(shifted_spectrum, initial_parameters)
+
+    return gaussianfit_results
 
 
-def FindLinePeak(NormalizedSpectrum, BalmerSeriesIndex):
-    LinePeak = np.where(NormalizedSpectrum.spectral_axis/u.Angstrom == FindNearestPointIndex(NormalizedSpectrum,
-                                                                                             BalmerSeriesAngstrom[BalmerSeriesIndex]))[0][0]
-    return LinePeak
+def normalize_spectrum(spectrum, continuum_spectrum):
+    """ Returns a normalized spectrum using the continuum. """
+    normalized_spectrum = spectrum/continuum_spectrum
+
+    return normalized_spectrum
 
 
-def FindNearestPointIndex(NormalizedSpectrum, BalmerSeriesPeak):
-    SpectralAxis = NormalizedSpectrum.spectral_axis/u.Angstrom
-    index = np.searchsorted(SpectralAxis, BalmerSeriesPeak, side="left")
+def find_linepeak(normalized_spectrum, line):
+    """ Returns the peak of a given line for a given spectrum. """
+    line_index = get_line_index(line)
+    nearest_point = find_nearest_point(normalized_spectrum,
+                                       BalmerSeriesAngstrom[line_index])
+    spectral_axis = normalized_spectrum.spectral_axis/u.Angstrom
 
-    if index > 0 and (index == len(SpectralAxis) or math.fabs(BalmerSeriesPeak - SpectralAxis[index-1]) < math.fabs(BalmerSeriesPeak - SpectralAxis[index])):
-        NearestPointIndex = SpectralAxis[index-1]
+    line_peak = np.where(spectral_axis == nearest_point)[0][0]
+
+    return line_peak
+
+
+def find_nearest_point(normalized_spectrum, balmer_peak):
+    """ Returns the index in the spectrum closest to the balmer value. """
+    spectral_axis = normalized_spectrum.spectral_axis/u.Angstrom
+    index = np.searchsorted(spectral_axis, balmer_peak, side="left")
+
+    if previous_index_condition(index, spectral_axis, balmer_peak):
+        nearest_index = spectral_axis[index-1]
     else:
-        NearestPointIndex = SpectralAxis[index]
+        nearest_index = spectral_axis[index]
 
-    return NearestPointIndex
-
-
-def PeakCentralizedSpectrum(NormalizedSpectrum, Peak):
-    CentralizedSpectrum = Spectrum1D(flux=NormalizedSpectrum.flux-1,
-                                     spectral_axis=NormalizedSpectrum.spectral_axis-NormalizedSpectrum.spectral_axis[Peak])
-    return CentralizedSpectrum
+    return nearest_index
 
 
-def GaussianFit(Spectrum, Peak):
-    AmplitudeFirstGuess = Spectrum.flux[Peak]
-    InitialParameters = GaussianParameterFirstGuess(AmplitudeFirstGuess)
-    GaussianFitResults = fit_lines(Spectrum, InitialParameters)
+def previous_index_condition(index, spectral_axis, balmer_peak):
+    """ Evaluates if the previous index is more adequate to be the peak. """
+    positive_index_condition = index > 0
+    length_condition = index == len(spectral_axis)
 
-    return GaussianFitResults
+    equal_to_spectral_length = positive_index_condition and length_condition
+
+    previous_difference = math.fabs(balmer_peak - spectral_axis[index-1])
+    present_difference = math.fabs(balmer_peak - spectral_axis[index])
+
+    close_value_condition = previous_difference < present_difference
+
+    return equal_to_spectral_length or close_value_condition
 
 
-def GaussianParameterFirstGuess(AmplitudeGuess):
-    InitialGuess = models.Gaussian1D(
-        amplitude=AmplitudeGuess, mean=0, stddev=20)
+def peakshift_spectrum(normalized_spectrum, peak):
+    """ Shift the spectrum so the peak is in the center and the flux is close
+    to 0.
+    """
+    spectral_axis = normalized_spectrum.spectral_axis
+    centralized_spectrum = spectral_axis - spectral_axis[peak]
 
-    return InitialGuess
+    shifted_spectrum = Spectrum1D(flux=normalized_spectrum.flux-1,
+                                  spectral_axis=centralized_spectrum)
+    return shifted_spectrum
+
+
+def gaussian_first_guess(amplitude_guess):
+    """ Returns a one-dimensional gaussinan model to be used as a first guess. """
+    initial_guess = models.Gaussian1D(
+        amplitude=amplitude_guess, mean=0, stddev=20)
+
+    return initial_guess
 
 
 class ObservedSpectrum():
-    pass
+    """ To be done. Will be the equivalent of ModelSpectrum but for real SDSS
+    spectra manipulation.
+    """
 
 
 if __name__ == "__main__":
