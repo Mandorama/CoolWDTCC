@@ -22,24 +22,46 @@ ParametersGrid = pd.DataFrame(np.ones([260, 14]), columns=['Teff', 'logg',
 StartTime = time.time()
 
 
-def AssignParameters(Array, Model):
-    Array[0] = Model.Teff
-    Array[1] = Model.logg
-    ParameterIndex = 2
-    for Line in SpectralLines:
-        Array[ParameterIndex] = Model.LineParameters(Line)[0]
-        Array[ParameterIndex+1] = Model.LineParameters(Line)[1]
+def assign_parameters(array, model):
+    """Takes a model and returns an array with its stellar and line parameters.
 
-        ParameterIndex += 2
-    return Array
+    Parameters
+    ----------
+    array : ndarray
+        Empty array to be fulfilled with parameters.
+    model : <class 'Spectrum.ModelSpectrum'>
+        A model from the module Spectrum that gives information about the 
+        spectra of TLUSTY stellar model and its stellar parameters - in this
+        case, the effective temperature and superficial gravity.
+
+    Returns
+    -------
+    array : ndarray
+        An array containing the effective temperature, the superficial gravity,
+        and the amplitude and standard deviation of alpha, beta, gamma, delta,
+        epsilon and zeta lines of the spectra of a given model.
+
+    """
+
+    array[0] = model.Teff
+    array[1] = model.logg
+    parameter_index = 2
+    for line in SpectralLines:
+        array[parameter_index] = model.LineParameters(line)[0]
+        array[parameter_index+1] = model.LineParameters(line)[1]
+
+        parameter_index += 2
+    return array
 
 
 ModelsList = [spec.ModelSpectrum(spec.Model(i)) for i in range(260)]
 
 for Index, Model in enumerate(ModelsList):
+    print(type(Model))
     EmptyRow = np.ones(14)
-    RowOfParameters = AssignParameters(EmptyRow, Model)
+    RowOfParameters = assign_parameters(EmptyRow, Model)
     ParametersGrid.iloc[Index] = RowOfParameters
+    break
 
 LoopTime = time.time()
 
