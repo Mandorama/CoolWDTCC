@@ -39,7 +39,7 @@ def assign_parameters(array, model):
     array : ndarray
         An array containing the effective temperature, the superficial gravity,
         and the amplitude and standard deviation of alpha, beta, gamma, delta,
-        epsilon and zeta lines of the spectra of a given model.
+        epsilon and zeta lines of the spectra of the given model.
 
     """
 
@@ -57,11 +57,9 @@ def assign_parameters(array, model):
 ModelsList = [spec.ModelSpectrum(spec.Model(i)) for i in range(260)]
 
 for Index, Model in enumerate(ModelsList):
-    print(type(Model))
     EmptyRow = np.ones(14)
     RowOfParameters = assign_parameters(EmptyRow, Model)
     ParametersGrid.iloc[Index] = RowOfParameters
-    break
 
 LoopTime = time.time()
 
