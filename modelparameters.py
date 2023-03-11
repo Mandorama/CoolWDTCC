@@ -9,7 +9,7 @@ Created on Sun Feb 26 19:23:20 2023
 import time
 import numpy as np
 import pandas as pd
-import Spectrum as spec
+import spectral_manipulation as spec
 
 SpectralLines = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta']
 ParametersGrid = pd.DataFrame(np.ones([260, 14]), columns=['Teff', 'logg',
