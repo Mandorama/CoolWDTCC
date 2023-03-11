@@ -18,177 +18,265 @@ from specutils.fitting import fit_generic_continuum
 from astropy.modeling import models
 
 
-class Model:
-    def __init__(self, Index, Gridfilepath="GridCLEAN.csv"):
-        self.Index = Index
-        self.Grid = getModelsGrid(Gridfilepath)
+class GenericModel:
+    """ Simple model with parameters from grid file. """
+
+    def __init__(self, index, grid_filepath="GridCLEAN.csv"):
+        self.index = index
+        self.grid = get_modelgrid(grid_filepath)
 
     @property
-    def ModelData(self):
-        return getModelData(self.Grid, self.Index)
+    def model_data(self):
+        """ Flux as a function of wavelength in CGI units. """
+        return get_model_data(self.grid, self.index)
 
     @property
-    def EffectiveTemperature(self):
-        return self.Grid.Teff[self.Index]
+    def effective_temperature(self):
+        """" Effective Temperature (Teff) of the model in K. """
+        return self.grid.Teff[self.index]
 
     @property
-    def LogarithmicGravity(self):
-        return self.Grid.logg[self.Index]
+    def logarithmic_gravity(self):
+        """ Logarithmic gravity (log g) of the model. """
+        return self.grid.logg[self.index]
 
 
-def getModelsGrid(Gridfilepath="GridCLEAN.csv"):
-    Grid = pd.read_csv(Gridfilepath)
+def get_modelgrid(grid_filepath="GridCLEAN.csv"):
+    """ Create a pandas dataframe from a csv file of the grid. """
+    grid = pd.read_csv(grid_filepath)
 
-    return Grid
+    return grid
 
 
-def getModelData(Grid, Index):
-    ModelData = pd.read_csv(
-        f"./Espectros/{Grid.Arquivo[Index]}", header=None, sep="\s+")
+def get_model_data(grid, index):
+    """ Return the spectra data of a model from its index in the grid. """
+    model_data = pd.read_csv(
+        f"./Espectros/{grid.Arquivo[index]}", header=None, sep="\\s+")
 
-    return ModelData
+    return model_data
 
 
 class ModelSpectrum:
+    """ 
+    An object containing information about the flux and spectral data of a
+    model and methods to obtain the parameters of its alpha, beta, gamma,
+    delta, epsilon and zeta line parameters, calculated with gaussian fits.
 
-    def __init__(self, ModelProperties):
-        self.ModelData = ModelProperties.ModelData
-        self.Teff = ModelProperties.EffectiveTemperature
-        self.logg = ModelProperties.LogarithmicGravity
+    ---------------------------------------------------------------------------
+    Properties:
+
+    flux_data
+        Contains an array (more specificaly an astropy.units.quantity.Quantity) 
+        of the flux in CGS unit [erg / (Angstrom cm2 s)].
+
+    spectral_data
+        Contains an array (more specificaly an astropy.units.quantity.Quantity) 
+        of the spectral space in CGS unit [Angstrom].
+
+    spectrum
+        A specutils.spectra.spectrum1d.Spectrum1D object, containing the flux
+        and spectral axis data of a one dimensional spectrum.
+
+    gaussianfits
+        Dictionary containing the gaussian fit for each spectral line from
+        alpha to zeta of the model spectrum.
+    ---------------------------------------------------------------------------
+    Methods:
+
+    get_line_parameters
+        Returns an array containing the amplitude and standard deviation of the
+        gaussian fit of a given line for the sprectrum of the model.
+
+    ---------------------------------------------------------------------------
+
+
+    """
+
+    def __init__(self, model_properties):
+        self.model_data = model_properties.model_data
+        self.teff = model_properties.effective_temperature
+        self.logg = model_properties.logarithmic_gravity
 
     @property
-    def FluxData(self):
+    def flux_data(self):
+        """ Array of the model's flux data in erg / (Angstrom cm2 s) """
         return np.array(
-            self.ModelData[1].copy())*u.Unit("erg / (Angstrom cm2 s)")
+            self.model_data[1].copy())*u.Unit("erg / (Angstrom cm2 s)")
 
     @property
-    def SpectralAxis(self):
-        return np.array(self.ModelData[0].copy())*u.Angstrom
+    def spectral_axis(self):
+        """ Array of the model's spectral axis in Angstrom """
+        return np.array(self.model_data[0].copy())*u.Angstrom
 
     @property
-    def Spectrum(self):
-        return Spectrum1D(flux=self.FluxData,
-                          spectral_axis=self.SpectralAxis)
+    def spectrum(self):
+        """ One dimensional spectrum object containing flux and spectral data 
+        """
+        return Spectrum1D(flux=self.flux_data,
+                          spectral_axis=self.spectral_axis)
 
     @property
-    def GaussianFits(self):
-        GaussianFits = {'Alpha': SpectrumLineFitting(self, 'Alpha'),
-                        'Beta': SpectrumLineFitting(self, 'Beta'),
-                        'Gamma': SpectrumLineFitting(self, 'Gamma'),
-                        'Delta': SpectrumLineFitting(self, 'Delta'),
-                        'Epsilon': SpectrumLineFitting(self, 'Epsilon'),
-                        'Zeta': SpectrumLineFitting(self, 'Zeta')}
+    def gaussianfits(self):
+        """ Dictionary containing all the gaussian fits of the model;s spectrum
+        """
+        gaussian_fits = {'Alpha': fit_spectrum_line(self, 'Alpha'),
+                         'Beta': fit_spectrum_line(self, 'Beta'),
+                         'Gamma': fit_spectrum_line(self, 'Gamma'),
+                         'Delta': fit_spectrum_line(self, 'Delta'),
+                         'Epsilon': fit_spectrum_line(self, 'Epsilon'),
+                         'Zeta': fit_spectrum_line(self, 'Zeta')}
 
-        return GaussianFits
+        return gaussian_fits
 
-    def LineParameters(self, Line):
-        LineGaussianFitting = SpectrumLineFitting(self, Line)
-        LineAmplitude = LineGaussianFitting.amplitude.value
-        LineStdDev = LineGaussianFitting.stddev.value
+    def get_line_parameters(self, line):
+        """ Returns the amplitude and standard deviation of a given line.
 
-        Parameters = np.array([LineAmplitude, LineStdDev])
+        Parameters
+        ----------
+        line : string
+            Line whose parameters are to be informed. Lines accepted are:
+            Alpha, Beta, Gamma, Delta, Epsilon and Zeta. Must be capitalized.
 
-        return Parameters
+        Returns
+        -------
+        parameters : ndarray
+            Array containing two values: Amplitude and standard deviation of
+            the gaussian fit of the line.
 
-    def NormalizedLineSpectrum(self, Line):
-        CutSpectrum = LineSpectrum(self, Line)
-        ContinuumSpectrum = FitContinuumSpectrum(CutSpectrum, Line)
+        """
+        line_gaussianfitting = fit_spectrum_line(self, line)
+        line_amplitude = line_gaussianfitting.amplitude.value
+        line_stddev = line_gaussianfitting.stddev.value
 
-        NormalizedSpectrum = CutSpectrum/ContinuumSpectrum
+        parameters = np.array([line_amplitude, line_stddev])
 
-        return NormalizedSpectrum
+        return parameters
+
+    def normalized_linespectrum(self, line):
+        """ Returns the normalized spectrum around a given line.
+
+        Parameters
+        ----------
+        line : string
+            Line whose parameters are to be informed. Lines accepted are:
+            Alpha, Beta, Gamma, Delta, Epsilon and Zeta. Must be capitalized.
+
+        Returns
+        -------
+        normalized_spectrum : specutils.spectra.spectrum1d.Spectrum1D 
+            Returns a one dimensional spectrum object of the spectrum 
+            normalized by its continumm around a given line.
+
+        """
+        cut_spectrum = line_spectrum(self, line)
+        continuum_spectrum = fit_continuum_spectrum(cut_spectrum, line)
+
+        normalized_spectrum = cut_spectrum/continuum_spectrum
+
+        return normalized_spectrum
 
 
 BalmerSeriesAngstrom = np.array([6562.79, 4861.35, 4340.472, 4101.734,
                                  3970.075, 3889.064, 3835.064, 3797.909, 3770.633])
 
 
-def SpectrumLineFitting(Model, FittedLine):
-    LineBaseSpectrum = LineSpectrum(Model, FittedLine)
-    LineContinuumFitted = FitContinuumSpectrum(
-        LineBaseSpectrum, FittedLine)
+def fit_spectrum_line(model, line):
+    """ Returns the gaussian paramters for the fit of a given line"""
+    spectrum = line_spectrum(model, line)
+    line_continuum = fit_continuum_spectrum(
+        spectrum, line)
 
-    LineIndex = getBalmerSeriesLineIndex(FittedLine)
+    line_index = get_line_index(line)
 
-    GaussianParameters = GaussianFitting(
-        LineBaseSpectrum, LineContinuumFitted, LineIndex)
+    gaussian_parameters = GaussianFitting(
+        spectrum, line_continuum, line_index)
 
-    return GaussianParameters
-
-
-def LineSpectrum(Model, FittedLine):
-    SpectrumLimits = LineIndexLimits(FittedLine)
-    LineSpectrum = CreateBaseSpectrum(
-        Model, SpectrumLimits[0], SpectrumLimits[1])
-
-    return LineSpectrum
+    return gaussian_parameters
 
 
-def getBalmerSeriesLineIndex(FittedLine):
-    BalmerSeriesLineIndex = {'Alpha': 0,
-                             'Beta': 1,
-                             'Gamma': 2,
-                             'Delta': 3,
-                             'Epsilon': 4,
-                             'Zeta': 5}
+def line_spectrum(model, line):
+    """ Returns the spectrum around a given line. """
+    spectrum_limits = line_indexlimits(line)
+    spectrum = get_cut_spectrum(
+        model, spectrum_limits[0], spectrum_limits[1])
 
-    return BalmerSeriesLineIndex[FittedLine]
+    return spectrum
 
 
-def LineIndexLimits(FittedLine):
-    LineLimits = {'Alpha': [12550, 17005],
-                  'Beta': [12550, 17005],
-                  'Gamma': [12000, 12550],
-                  'Delta': [11650, 12000],
-                  'Epsilon': [11460, 11650],
-                  'Zeta': [11320, 11460]}
+def get_line_index(line):
+    """ Returns an integer index corresponding to the given balmer line. """
+    balmer_line_indices = {'Alpha': 0,
+                           'Beta': 1,
+                           'Gamma': 2,
+                           'Delta': 3,
+                           'Epsilon': 4,
+                           'Zeta': 5}
 
-    InferiorLimit = LineLimits[FittedLine][0]
-    SuperiorLimit = LineLimits[FittedLine][1]
-
-    Limits = np.array([InferiorLimit, SuperiorLimit])
-
-    return Limits
+    return balmer_line_indices[line]
 
 
-def CreateBaseSpectrum(Model, InferiorLimitAngstrom, SuperiorLimitAngstrom):
-    BaseSpectrum = Model.Spectrum[InferiorLimitAngstrom:SuperiorLimitAngstrom]
+def line_indexlimits(line):
+    """ Returns the limits of each line in the TLUSTY model spectra. """
+    line_limits = {'Alpha': [12550, 17005],
+                   'Beta': [12550, 17005],
+                   'Gamma': [12000, 12550],
+                   'Delta': [11650, 12000],
+                   'Epsilon': [11460, 11650],
+                   'Zeta': [11320, 11460]}
 
-    return BaseSpectrum
+    inferior_limit = line_limits[line][0]
+    superior_limit = line_limits[line][1]
 
+    limits = np.array([inferior_limit, superior_limit])
 
-def NoiseRegionbyLine(FittedLine):
-    NoiseRegionsParameters = {'Alpha': [0, 2],
-                              'Beta': [1, 2],
-                              'Gamma': [2, 1.5],
-                              'Delta': [3, 2],
-                              'Epsilon': [4, 1.8],
-                              'Zeta': [5, 1.1]}
-
-    LineNoiseRegion = NoiseRegionsParameters[FittedLine]
-    NoiseRegion = SetSubRegion(LineNoiseRegion[0], LineNoiseRegion[1])
-
-    return NoiseRegion
+    return limits
 
 
-def SetSubRegion(BalmerSeriesIndex, ScalingTolerenceFactor):
-    BalmerToleranceAngstrom = np.array(
-        [300, 300, 150, 100, 60, 30, 30, 20, 20])
+def get_cut_spectrum(model, inferior_limit, superior_limit):
+    """ Cut the model's spectrum in the desired region """
+    cut_spectrum = model.spectrum[inferior_limit:superior_limit]
 
-    SubRegion = SpectralRegion((BalmerSeriesAngstrom[BalmerSeriesIndex]-BalmerToleranceAngstrom[BalmerSeriesIndex]/ScalingTolerenceFactor)*u.Angstrom,
-                               (BalmerSeriesAngstrom[BalmerSeriesIndex]+BalmerToleranceAngstrom[BalmerSeriesIndex]/ScalingTolerenceFactor)*u.Angstrom)
-
-    return SubRegion
+    return cut_spectrum
 
 
-def FitContinuumSpectrum(BaseSpectrum, FittedLine):
-    NoiseRegion = NoiseRegionbyLine(FittedLine)
+def fit_continuum_spectrum(spectrum, line):
+    """ Returns the continuum spectrum around a given line. """
+    noise_region = line_noise_region(line)
 
-    ContinuumFit = CreateContinuumFitFunction(
-        BaseSpectrum, NoiseRegion)
-    ContinuumSpectrum = ContinuumFit(BaseSpectrum.spectral_axis)
+    continuum_fit = CreateContinuumFitFunction(
+        spectrum, noise_region)
+    continuum_spectrum = continuum_fit(spectrum.spectral_axis)
 
-    return ContinuumSpectrum
+    return continuum_spectrum
+
+
+def line_noise_region(line):
+    """ Returns the spectral region of noise in Angstrom. """
+    regions_paramters = {'Alpha': [0, 2],
+                         'Beta': [1, 2],
+                         'Gamma': [2, 1.5],
+                         'Delta': [3, 2],
+                         'Epsilon': [4, 1.8],
+                         'Zeta': [5, 1.1]}
+
+    line_noise_parameters = regions_paramters[line]
+    noise_region = set_subregion(line_noise_parameters[0],
+                                 line_noise_parameters[1])
+
+    return noise_region
+
+
+def set_subregion(balmer_series_index, scaling_tolerence_factor):
+    """ Returns spectral subregion for a given balmer series index. """
+    line_tolerance = np.array([300, 300, 150, 100, 60, 30, 30, 20, 20])
+    lower_boundary = (BalmerSeriesAngstrom[balmer_series_index] -
+                      line_tolerance[balmer_series_index])*u.Angstrom
+    upper_boundary = (BalmerSeriesAngstrom[balmer_series_index] +
+                      line_tolerance[balmer_series_index])*u.Angstrom
+    sub_region = SpectralRegion((lower_boundary/scaling_tolerence_factor),
+                                (upper_boundary/scaling_tolerence_factor))
+
+    return sub_region
 
 
 def CreateContinuumFitFunction(BaseSpectrum, RegionsToBeExcluded):
@@ -261,6 +349,6 @@ class ObservedSpectrum():
 
 
 if __name__ == "__main__":
-    TestModel = ModelSpectrum(Model(0))
+    TestModel = ModelSpectrum(GenericModel(0))
 
-    print(TestModel.GaussianFits['Beta'])
+    print(TestModel.gaussianfits['Beta'])

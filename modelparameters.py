@@ -43,18 +43,18 @@ def assign_parameters(array, model):
 
     """
 
-    array[0] = model.Teff
+    array[0] = model.teff
     array[1] = model.logg
     parameter_index = 2
     for line in SpectralLines:
-        array[parameter_index] = model.LineParameters(line)[0]
-        array[parameter_index+1] = model.LineParameters(line)[1]
+        array[parameter_index] = model.get_line_parameters(line)[0]
+        array[parameter_index+1] = model.get_line_parameters(line)[1]
 
         parameter_index += 2
     return array
 
 
-ModelsList = [spec.ModelSpectrum(spec.Model(i)) for i in range(260)]
+ModelsList = [spec.ModelSpectrum(spec.GenericModel(i)) for i in range(260)]
 
 for Index, Model in enumerate(ModelsList):
     EmptyRow = np.ones(14)
